@@ -160,8 +160,3 @@ Describe 'when servers are found in AD' {
         }
     }
 }
-
-<# 
-
-
-Invoke-Pester 'T:\Prod\Search file extension\Search file extension.Tests.ps1' -Output Detailed #>
