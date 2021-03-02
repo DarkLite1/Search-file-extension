@@ -190,7 +190,7 @@ Process {
                     })
 
                 @($WorkSheet.Names['Size_'].Style).ForEach( {
-                        $_.NumberFormat.Format = '?\ \K\B'
+                        $_.NumberFormat.Format = '?\ \B'
                         $_.HorizontalAlignment = 'Center'
                     })
             }
