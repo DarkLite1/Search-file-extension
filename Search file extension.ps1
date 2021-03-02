@@ -119,6 +119,9 @@ Process {
                 $getParams.Path = $ComputersNotInOU
             }
             $serverComputerNames = Get-ServersHC @getParams
+
+            $M = "Retrieved $($serverComputerNames.Count) servers"
+            Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
         }
         Catch {
             throw "Failed retrieving the servers: $_"
@@ -126,6 +129,9 @@ Process {
         #endregion
 
         #region Get files from remote machines
+        $M = "Start jobs to retrieve files from remote machines"
+        Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
+            
         $jobs = foreach ($computerName in $serverComputerNames) {
             $invokeParams = @{
                 ComputerName = $computerName
@@ -137,6 +143,9 @@ Process {
         }
 
         $jobResults = if ($jobs) { $jobs | Wait-Job | Receive-Job }
+
+        $M = "All jobs finished"
+        Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
         #endregion
 
         $excelParams = @{
@@ -158,11 +167,11 @@ Process {
             @{name = 'Path'; expression = { $_.FullName.TrimStart('\\?\') } },
             CreationTime, LastWriteTime,
             @{Name = 'Size'; Expression = { [MATH]::Round($_.Length / 1GB, 2) } },
-            @{name = 'Size_'; expression = { $_.Length / 1GB } }
+            @{name = 'Size_'; expression = { $_.Length } }
         }
 
         if ($matchingFilesToExport) {
-            $M = "Export $($jobResults.File.Count) rows to Excel sheet 'MatchingFiles'"
+            $M = "Export $($matchingFilesToExport.Count) rows to Excel sheet 'MatchingFiles'"
             Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
             
             $excelParams.WorksheetName = 'MatchingFiles'
@@ -202,6 +211,9 @@ Process {
         }
 
         if ($searchErrors) {
+            $M = "Export $($searchErrors.Count) rows to Excel sheet 'SearchErrors'"
+            Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
+
             $excelParams.WorksheetName = 'SearchErrors'
             $excelParams.TableName = 'SearchErrors'
             
@@ -222,6 +234,9 @@ Process {
         }
 
         if ($pathExists) {
+            $M = "Export $($pathExists.Count) rows to Excel sheet 'PathExists'"
+            Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
+
             $excelParams.WorksheetName = 'PathExists'
             $excelParams.TableName = 'PathExists'
             
@@ -231,9 +246,15 @@ Process {
 
         #region Export general errors to Excel
         if ($Error.Exception.Message) {
+            $M = "Export $($Error.Exception.Message.Count) rows to Excel sheet 'Error'"
+            Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
+
+            $excelParams.WorksheetName = 'Error'
+            $excelParams.TableName = 'Error'
+
             $Error.Exception.Message |
             Select-Object @{Name = 'Error'; Expression = { $_ } } |
-            Export-Excel @excelParams -WorksheetName 'Error' -TableName 'Error'
+            Export-Excel @excelParams
 
             $mailParams.Attachments = $excelParams.Path
         }
