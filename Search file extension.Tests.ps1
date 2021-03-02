@@ -158,7 +158,7 @@ Describe 'when servers are found in AD' {
                 ($Attachments -like '*log.xlsx') -and
                 ($Message -like '*
                 *Servers scanned*1*
-                *Search filters*folder*extension*.txt*
+                *Search filters*folder*>*.txt*
                 *Matching files found*3*
                 *Search errors*0*')
             }

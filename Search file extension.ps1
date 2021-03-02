@@ -102,9 +102,9 @@ Begin {
     }
     Catch {
         Write-Warning $_
-        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        Write-EventLog @EventEndParams; Exit 1
+        Write-EventLog @EventEndParams
+        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
     }
 }
 
@@ -262,20 +262,20 @@ Process {
     }
     Catch {
         Write-Warning $_
-        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        Write-EventLog @EventEndParams; Exit 1
+        Write-EventLog @EventEndParams
+        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
     }
     Finally {
         Get-Job | Remove-Job -Force
     }
 }
 
-end {
+End {
     Try {
         #region Send mail to user
         $searchFilters = ($Path.GetEnumerator() | ForEach-Object {
-                "Path '{0}' extension '{1}'" -f $_.Key, $($_.Value -join "', '")
+                "'{0}' > '{1}'" -f $_.Key, $($_.Value -join "', '")
             }) -join '<br>'
                    
         $mailParams.Subject = "$($matchingFilesToExport.count) matching files"
@@ -328,13 +328,13 @@ end {
            
         Get-ScriptRuntimeHC -Stop
         Send-MailHC @mailParams
+        $Error.Clear()
         #endregion
     }
     Catch {
         Write-Warning $_
-        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        Exit 1
+        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
     }
     Finally {
         Write-EventLog @EventEndParams
