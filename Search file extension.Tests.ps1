@@ -30,17 +30,12 @@ Describe 'the mandatory parameters are' {
         Should -BeTrue
     }
 }
-Describe 'send an e-mail to the admin when' {
+Describe 'throw a terminating error when' {
     It 'the log folder cannot be created' {
         $testNewParams = $testParams.clone()
         $testNewParams.LogFolder = 'xxx:://notExistingLocation'
 
-        .$testScript @testNewParams
-
-        Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
-            (&$MailAdminParams) -and 
-            ($Message -like '*Failed creating the log folder*')
-        }
+        { .$testScript @testNewParams } | Should -Throw "Failed creating the log folder 'xxx:://notExistingLocation'*"
     }
 }
 Describe 'when no servers are found in AD' {
