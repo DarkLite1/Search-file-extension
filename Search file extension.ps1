@@ -32,8 +32,8 @@ Param (
     [Parameter(Mandatory)]
     [HashTable]$Path,
     [String]$ComputersNotInOU,
-    [String]$LogFolder = $env:POWERSHELL_LOG_FOLDER,
-    [String]$ScriptAdmin = $env:POWERSHELL_SCRIPT_ADMIN
+    [String]$LogFolder = "$env:POWERSHELL_LOG_FOLDER\File or folder\Search file extension\$ScriptName",
+    [String[]]$ScriptAdmin = $env:POWERSHELL_SCRIPT_ADMIN
 )
 
 Begin {
