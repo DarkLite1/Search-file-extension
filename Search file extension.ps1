@@ -1,3 +1,6 @@
+#Requires -Version 5.1
+#Requires -Modules Toolbox.HTML, Toolbox.EventLog, Toolbox.Remoting
+
 <# 
     .SYNOPSIS   
         Search for specific file extensions.
@@ -33,7 +36,10 @@ Param (
     [HashTable]$Path,
     [String]$ComputersNotInOU,
     [String]$LogFolder = "$env:POWERSHELL_LOG_FOLDER\File or folder\Search file extension\$ScriptName",
-    [String[]]$ScriptAdmin = $env:POWERSHELL_SCRIPT_ADMIN
+    [String[]]$ScriptAdmin = @(
+		$env:POWERSHELL_SCRIPT_ADMIN,
+		$env:POWERSHELL_SCRIPT_ADMIN_BACKUP
+	)
 )
 
 Begin {

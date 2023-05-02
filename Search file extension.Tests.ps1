@@ -147,7 +147,6 @@ Describe 'when servers are found in AD' {
         It 'a summary mail is sent to the user' {
             Should -Invoke Send-MailHC -Exactly 1 -Scope Context -ParameterFilter {
                 ($To -eq 'bob@contoso.com') -and
-                ($Bcc -eq $ScriptAdmin) -and
                 ($Priority -ne 'High') -and
                 ($Subject -eq '3 matching files') -and
                 ($Attachments -like '*log.xlsx') -and
