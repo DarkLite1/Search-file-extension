@@ -1,0 +1,14 @@
+{
+  "MailTo": ["bob@contoso.net"],
+  "AD": {
+    "OU": [
+      "OU=BEL,OU=EU,DC=contoso,DC=net",
+      "OU=NLD,OU=EU,DC=contoso,DC=net",
+      "OU=LUX,OU=EU,DC=contoso,DC=net"
+    ]
+  },
+  "Path": {
+    "E:\\DEPARTMENTS": [".pst"]
+  },
+  "ComputersNotInOu": "C:\\Input\\Computers.txt"
+}

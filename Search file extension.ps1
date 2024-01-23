@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 #Requires -Modules Toolbox.HTML, Toolbox.EventLog, Toolbox.Remoting
 
-<# 
-    .SYNOPSIS   
+<#
+    .SYNOPSIS
         Search for specific file extensions.
 
     .DESCRIPTION
-        find all files with the requested extension on the servers in AD and 
+        find all files with the requested extension on the servers in AD and
         send a report to the user with LastWriteTime, Size, ...
 
     .PARAMETER Path
@@ -20,26 +20,21 @@
         @{
             'E:/DEPARTMENTS' = @('.pst')
         }
-    
-        Search for all files with extension '.pst' in the folder 
+
+        Search for all files with extension '.pst' in the folder
         'E:/DEPARTMENTS'.
 #>
-                
+
 Param (
     [Parameter(Mandatory)]
     [String]$ScriptName,
     [Parameter(Mandatory)]
-    [String[]]$OU,
-    [Parameter(Mandatory)]
-    [String[]]$MailTo,
-    [Parameter(Mandatory)]
-    [HashTable]$Path,
-    [String]$ComputersNotInOU,
+    [String]$ImportFile,
     [String]$LogFolder = "$env:POWERSHELL_LOG_FOLDER\File or folder\Search file extension\$ScriptName",
     [String[]]$ScriptAdmin = @(
-		$env:POWERSHELL_SCRIPT_ADMIN,
-		$env:POWERSHELL_SCRIPT_ADMIN_BACKUP
-	)
+        $env:POWERSHELL_SCRIPT_ADMIN,
+        $env:POWERSHELL_SCRIPT_ADMIN_BACKUP
+    )
 )
 
 Begin {
@@ -56,7 +51,7 @@ Begin {
             File         = @()
             Error        = @()
         }
-        
+
         foreach ($path in $Paths.GetEnumerator()) {
             Try {
                 $result.PathExist[$path.Key] = $false
@@ -65,10 +60,10 @@ Begin {
                     $result.PathExist[$path.Key] = $true
                     foreach ($extension in $path.Value) {
                         $params = @{
-                            Path    = '\\?\{0}' -f $path.Key
-                            Recurse = $true
-                            Filter  = '*{0}' -f $extension
-                            Force   = $true
+                            LiteralPath = $path.Key
+                            Recurse     = $true
+                            Filter      = '*{0}' -f $extension
+                            Force       = $true
                         }
                         $result.File += Get-ChildItem @params
                     }
@@ -104,13 +99,41 @@ Begin {
         }
         #endregion
 
+        #region Import input file
+        try {
+            $file = Get-Content $ImportFile -Raw -EA Stop |
+            ConvertFrom-Json -AsHashtable
+
+            if (-not ($MailTo = $file.MailTo)) {
+                throw "Property 'MailTo' not found."
+            }
+
+            if (-not ($adOUs = $file.AD.OU)) {
+                throw "Property 'AD.OU' not found."
+            }
+
+            if (-not ($Path = $file.Path)) {
+                throw "Property 'Path' not found."
+            }
+
+            if ($ComputersNotInOU = $file.ComputersNotInOU) {
+                if (-not (Test-Path -LiteralPath $ComputersNotInOU -PathType Leaf)) {
+                    throw "File '$ComputersNotInOU' not found"
+                }
+            }
+        }
+        catch {
+            throw "Input file '$ImportFile': $_"
+        }
+        #endregion
+
         $mailParams = @{ }
     }
     Catch {
         Write-Warning $_
+        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        Write-EventLog @EventEndParams
-        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
+        Write-EventLog @EventEndParams; Exit 1
     }
 }
 
@@ -119,7 +142,7 @@ Process {
         #region Get computer names for servers
         Try {
             $getParams = @{
-                OU = $OU
+                OU = $adOUs
             }
             if ($ComputersNotInOU) {
                 $getParams.Path = $ComputersNotInOU
@@ -137,15 +160,22 @@ Process {
         #region Get files from remote machines
         $M = "Start jobs to retrieve files from remote machines"
         Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
-            
+
         $jobs = foreach ($computerName in $serverComputerNames) {
-            $invokeParams = @{
-                ComputerName = $computerName
-                ScriptBlock  = $scriptBlock
-                ArgumentList = $Path
-                asJob        = $true
+            try {
+                # $testResult = & $scriptBlock -Path $Path
+
+                $invokeParams = @{
+                    Session      = New-PSSessionHC -ComputerName $computerName
+                    ScriptBlock  = $scriptBlock
+                    ArgumentList = $Path
+                    asJob        = $true
+                }
+                Invoke-Command @invokeParams
             }
-            Invoke-Command @invokeParams
+            catch {
+                Write-Warning "Failed to start job on '$computerName': $_"
+            }
         }
 
         $jobResults = if ($jobs) { $jobs | Wait-Job | Receive-Job }
@@ -164,13 +194,13 @@ Process {
 
         #region Export matching files to Excel log file
         $matchingFilesToExport = foreach (
-            $job in 
+            $job in
             $jobResults | Where-Object { $_.File }
         ) {
             $job.File | Select-Object -Property @{
                 name = 'ComputerName'; expression = { $job.ComputerName }
             },
-            @{name = 'Path'; expression = { $_.FullName.TrimStart('\\?\') } },
+            @{name = 'Path'; expression = { $_.FullName } },
             CreationTime, LastWriteTime,
             @{Name = 'Size'; Expression = { [MATH]::Round($_.Length / 1GB, 2) } },
             @{name = 'Size_'; expression = { $_.Length } }
@@ -179,10 +209,10 @@ Process {
         if ($matchingFilesToExport) {
             $M = "Export $($matchingFilesToExport.Count) rows to Excel sheet 'MatchingFiles'"
             Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
-            
+
             $excelParams.WorksheetName = 'MatchingFiles'
             $excelParams.TableName = 'MatchingFiles'
-            
+
             $matchingFilesToExport | Export-Excel @excelParams -AutoNameRange -CellStyleSB {
                 Param (
                     $WorkSheet,
@@ -207,7 +237,7 @@ Process {
 
         #region Export search errors
         $searchErrors = foreach (
-            $job in 
+            $job in
             $jobResults | Where-Object { $_.Error }
         ) {
             $job.Error | Select-Object -Property @{
@@ -222,14 +252,14 @@ Process {
 
             $excelParams.WorksheetName = 'SearchErrors'
             $excelParams.TableName = 'SearchErrors'
-            
+
             $searchErrors | Export-Excel @excelParams
         }
         #endregion
 
         #region Export path exists
         $pathExists = foreach (
-            $job in 
+            $job in
             $jobResults | Where-Object { $_.PathExist }
         ) {
             $job.PathExist.GetEnumerator() | Select-Object -Property @{
@@ -245,7 +275,7 @@ Process {
 
             $excelParams.WorksheetName = 'PathExists'
             $excelParams.TableName = 'PathExists'
-            
+
             $pathExists | Export-Excel @excelParams
         }
         #endregion
@@ -268,9 +298,9 @@ Process {
     }
     Catch {
         Write-Warning $_
+        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        Write-EventLog @EventEndParams
-        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
+        Write-EventLog @EventEndParams; Exit 1
     }
     Finally {
         Get-Job | Remove-Job -Force
@@ -283,22 +313,22 @@ End {
         $searchFilters = ($Path.GetEnumerator() | ForEach-Object {
                 "'{0}' > '{1}'" -f $_.Key, $($_.Value -join "', '")
             }) -join '<br>'
-                   
+
         $mailParams.Subject = "$($matchingFilesToExport.count) matching files"
-        
+
         $errorMessage = $null
-           
+
         if ($Error) {
             $mailParams.Priority = 'High'
             $mailParams.Subject = "$($Error.Count) errors, $($mailParams.Subject)"
             $errorMessage = "<p>Encountered <b>$($Error.Count) non terminating errors</b>. Check the 'Error' worksheet.</p>"
         }
-        
+
         if ($folderRemovalErrors) {
             $mailParams.Priority = 'High'
             $mailParams.Subject += ", $($searchErrors.Count) search errors"
         }
-           
+
         $table = "
         <table>
             <tr>
@@ -319,7 +349,7 @@ End {
             </tr>
         </table>
         "
-           
+
         $mailParams += @{
             To        = $MailTo
             Bcc       = $ScriptAdmin
@@ -331,16 +361,17 @@ End {
             Header    = $ScriptName
             Save      = $LogFile + ' - Mail.html'
         }
-           
+
         Get-ScriptRuntimeHC -Stop
         Send-MailHC @mailParams
         $Error.Clear()
         #endregion
     }
-    Catch {
+    catch {
         Write-Warning $_
+        Send-MailHC -To $ScriptAdmin -Subject 'FAILURE' -Priority 'High' -Message $_ -Header $ScriptName
         Write-EventLog @EventErrorParams -Message "FAILURE:`n`n- $_"
-        $errorMessage = $_; $global:error.RemoveAt(0); throw $errorMessage
+        Exit 1
     }
     Finally {
         Write-EventLog @EventEndParams

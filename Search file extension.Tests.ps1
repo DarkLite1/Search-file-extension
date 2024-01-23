@@ -1,41 +1,66 @@
-#Requires -Modules Pester
+#Requires -Modules Pester, Toolbox.Remoting
 #Requires -Version 5.1
 
 BeforeAll {
-    $commandImportExcel = Get-Command Import-Excel
+    $realCmdLet = @{
+        ImportExcel = Get-Command Import-Excel
+    }
 
-    $MailAdminParams = {
-        ($To -eq $ScriptAdmin) -and ($Priority -eq 'High') -and 
-        ($Subject -eq 'FAILURE')
+    $testInputFile = @{
+        MaxConcurrentJobs = 1
+        MailTo            = 'bob@contoso.com'
+        AD                = @{
+            OU = @('OU=Computer,DC=contoso,DC=com')
+        }
+        Path              = @{
+            (New-Item 'TestDrive:\folder' -ItemType Directory).FullName = @('.txt')
+        }
+        ComputersNotInOu  = $null
+    }
+
+    $testOutParams = @{
+        FilePath = (New-Item "TestDrive:\Test.json" -ItemType File).FullName
+        Encoding = 'utf8'
     }
 
     $testScript = $PSCommandPath.Replace('.Tests.ps1', '.ps1')
     $testParams = @{
-        ScriptName = 'Test (Brecht)'
-        MailTo     = @('bob@contoso.com')
-        OU         = 'OU=Computer,DC=contoso,DC=com'
-        Path       = @{
-            (New-Item 'TestDrive:/folder' -ItemType Directory).FullName = 
-            @('.txt')
-        }
-        LogFolder  = New-Item 'TestDrive:/log' -ItemType Directory
+        ScriptName  = 'Test (Brecht)'
+        ImportFile  = $testOutParams.FilePath
+        LogFolder   = New-Item 'TestDrive:\log' -ItemType Directory
+        ScriptAdmin = 'mike@contoso.com'
     }
 
+    Mock New-PSSessionHC {
+        New-PSSession -ComputerName $env:COMPUTERNAME
+    }
     Mock Send-MailHC
     Mock Write-EventLog
 }
 Describe 'the mandatory parameters are' {
-    It '<_>' -ForEach @('OU', 'MailTo', 'ScriptName', 'Path') {
-        (Get-Command $testScript).Parameters[$_].Attributes.Mandatory | 
+    It '<_>' -ForEach @('ScriptName', 'ImportFile') {
+        (Get-Command $testScript).Parameters[$_].Attributes.Mandatory |
         Should -BeTrue
     }
 }
-Describe 'throw a terminating error when' {
+Describe 'send an e-mail to the admin when' {
+    BeforeAll {
+        $MailAdminParams = {
+            ($To -eq $testParams.ScriptAdmin) -and
+            ($Priority -eq 'High') -and
+            ($Subject -eq 'FAILURE')
+        }
+    }
     It 'the log folder cannot be created' {
-        $testNewParams = $testParams.clone()
-        $testNewParams.LogFolder = 'xxx:://notExistingLocation'
+        $testNewParams = Copy-ObjectHC $testParams
+        $testNewParams.LogFolder = 'xxx::\\notExistingLocation'
 
-        { .$testScript @testNewParams } | Should -Throw "Failed creating the log folder 'xxx:://notExistingLocation'*"
+        .$testScript @testNewParams
+
+        Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
+            (&$MailAdminParams) -and
+            ($Message -like '*Failed creating the log folder*')
+        }
     }
 }
 Describe 'when no servers are found in AD' {
@@ -43,119 +68,128 @@ Describe 'when no servers are found in AD' {
         Mock Get-ServersHC
         Mock Invoke-Command
 
+        $testInputFile | ConvertTo-Json -Depth 7 |
+        Out-File @testOutParams
+
         . $testScript @testParams
     }
     It 'Invoke-Command is not called' {
-        Should -Not -Invoke Invoke-Command 
+        Should -Not -Invoke Invoke-Command
     }
-} 
-Describe 'when servers are found in AD' {
-    Context 'Invoke-Command' {
-        BeforeAll {
-            Mock Get-ServersHC {
-                @('PC1', 'PC2')
-            }
-            Mock Invoke-Command
-
-            . $testScript @testParams
+}
+Describe 'when computers are found in AD' {
+    BeforeAll {
+        Mock Get-ServersHC {
+            @('PC1', 'PC2')
         }
-        It 'is called for each computer to search for the same paths and extensions' {
-            Should -Invoke Invoke-Command -Times 1 -Exactly -Scope Context -ParameterFilter {
-                ($ComputerName -eq 'PC1') -and
-                ($ArgumentList.Keys -eq $testParams.Path.Keys) -and
-                ($ArgumentList.Values -eq '.txt')
-            }
-            Should -Invoke Invoke-Command -Times 1 -Exactly -Scope Context -ParameterFilter {
-                ($ComputerName -eq 'PC2') -and
-                ($ArgumentList.Keys -eq $testParams.Path.Keys) -and
-                ($ArgumentList.Values -eq '.txt')
-            }
-        } 
-    } 
-    Context 'and the script runs' {
-        BeforeAll {
-            Mock Get-ServersHC { $env:COMPUTERNAME }
-            
-            $testMatchingFiles = @(
-                'TestDrive:/folder/1.txt', 
-                'TestDrive:/folder/2.txt', 
-                'TestDrive:/folder/3.txt'
-            ) | ForEach-Object {
-                '\\?\' + (New-Item $_ -ItemType File).FullName
-            }
+        Mock Invoke-Command
 
-            $testIgnoredFiles = @(
-                'TestDrive:/folder/ignore.zip', 
-                'TestDrive:/folder/ignore.pst',
-                'TestDrive:/ignore.txt'
-            ) | ForEach-Object {
-                '\\?\' + (New-Item $_ -ItemType File).FullName
-            }
+        $testInputFile | ConvertTo-Json -Depth 7 |
+        Out-File @testOutParams
 
-            . $testScript @testParams
+        . $testScript @testParams
+    }
+    Context 'call New-PSSessionHC for each computer' {
+        It '<_>' -ForEach @('PC1', 'PC2') {
+            Should -Invoke New-PSSessionHC -Times 1 -Exactly -Scope Describe -ParameterFilter {
+                $ComputerName -eq $_
+            }
         }
-        It 'files with matching extension are collected' {
-            $jobResults.File.FullName | 
-            Should -HaveCount $testMatchingFiles.Count
+    }
+    It 'call Invoke-Command for each computer' {
+        Should -Invoke Invoke-Command -Times 2 -Exactly -Scope Describe -ParameterFilter {
+            ($Session) -and
+            ($ArgumentList.Keys -eq $testInputFile.Path.Keys) -and
+            ($ArgumentList.Values -eq '.txt')
+        }
+    }
+}
+Describe 'when the script runs' {
+    BeforeAll {
+        Mock Get-ServersHC { $env:COMPUTERNAME }
 
+        $testMatchingFiles = @(
+            'TestDrive:\folder\1.txt',
+            'TestDrive:\folder\2.txt',
+            'TestDrive:\folder\3.txt'
+        ) | ForEach-Object {
+            (New-Item $_ -ItemType File).FullName
+        }
+
+        $testIgnoredFiles = @(
+            'TestDrive:\folder\ignore.zip',
+            'TestDrive:\folder\ignore.pst',
+            'TestDrive:\ignore.txt'
+        ) | ForEach-Object {
+            (New-Item $_ -ItemType File).FullName
+        }
+
+        $testInputFile | ConvertTo-Json -Depth 7 |
+        Out-File @testOutParams
+
+        . $testScript @testParams
+    }
+    It 'files with matching extension are collected' {
+        $jobResults.File.FullName |
+        Should -HaveCount $testMatchingFiles.Count
+
+        $testMatchingFiles | ForEach-Object {
+            $jobResults.File.FullName | Should -Contain $_
+        }
+    }
+    It 'not matching file extensions and paths are ignored' {
+        $testIgnoredFiles | ForEach-Object {
+            $jobResults.File.FullName | Should -Not -Contain $_
+        }
+    }
+    Context 'the exported Excel file worksheet MatchingFiles' {
+        BeforeAll {
+            $testExcelLogFile = Get-ChildItem $testParams.LogFolder -File -Recurse -Filter '*.xlsx'
+
+            $actual = & $realCmdLet.ImportExcel -Path $testExcelLogFile.FullName -WorksheetName 'MatchingFiles'
+        }
+        It 'is saved in the log folder' {
+            $testExcelLogFile | Should -Not -BeNullOrEmpty
+        }
+        It 'contains the files matching the extension' {
+            $actual | Should -HaveCount $testMatchingFiles.Count
+
+            $i = 0
             $testMatchingFiles | ForEach-Object {
-                $jobResults.File.FullName | Should -Contain $_
+                $actual[$i].ComputerName | Should -Be $env:COMPUTERNAME
+                $actual[$i].Path | Should -Be $_
+                $actual[$i].LastWriteTime | Should -Not -BeNullOrEmpty
+                $actual[$i].'Size' | Should -Not -BeNullOrEmpty
+                $i++
             }
         }
-        It 'not matching file extensions and paths are ignored' {
-            $testIgnoredFiles | ForEach-Object {
-                $jobResults.File.FullName | Should -Not -Contain $_
-            }
-        }
-        Context 'the exported Excel file worksheet MatchingFiles' {
-            BeforeAll {
-                $testExcelLogFile = Get-ChildItem $testParams.LogFolder -File -Recurse -Filter '*.xlsx'
+    }
+    Context 'the exported Excel file worksheet PathExists' {
+        BeforeAll {
+            $testExcelLogFile = Get-ChildItem $testParams.LogFolder -File -Recurse -Filter '*.xlsx'
 
-                $actual = & $commandImportExcel -Path $testExcelLogFile.FullName -WorksheetName 'MatchingFiles'
-            }
-            It 'is saved in the log folder' {
-                $testExcelLogFile | Should -Not -BeNullOrEmpty
-            }
-            It 'contains the files matching the extension' {
-                $actual | Should -HaveCount $testMatchingFiles.Count
-
-                $i = 0
-                $testMatchingFiles | ForEach-Object {
-                    $actual[$i].ComputerName | Should -Be $env:COMPUTERNAME
-                    $actual[$i].Path | Should -Be $_.TrimStart('\\?\')
-                    $actual[$i].LastWriteTime | Should -Not -BeNullOrEmpty
-                    $actual[$i].'Size' | Should -Not -BeNullOrEmpty
-                    $i++
-                }
-            } 
+            $actual = & $realCmdLet.ImportExcel -Path $testExcelLogFile.FullName -WorksheetName 'PathExists'
         }
-        Context 'the exported Excel file worksheet PathExists' {
-            BeforeAll {
-                $testExcelLogFile = Get-ChildItem $testParams.LogFolder -File -Recurse -Filter '*.xlsx'
-
-                $actual = & $commandImportExcel -Path $testExcelLogFile.FullName -WorksheetName 'PathExists'
-            }
-            It 'is saved in the log folder' {
-                $testExcelLogFile | Should -Not -BeNullOrEmpty
-            }
-            It 'contains an overview of ComputerName, Path and Exists' {
-                $actual.ComputerName | Should -Be $env:COMPUTERNAME
-                $actual.Path | Should -Be $testParams.Path.Keys
-                $actual.Exists | Should -BeTrue
-            } 
+        It 'is saved in the log folder' {
+            $testExcelLogFile | Should -Not -BeNullOrEmpty
         }
-        It 'a summary mail is sent to the user' {
-            Should -Invoke Send-MailHC -Exactly 1 -Scope Context -ParameterFilter {
-                ($To -eq 'bob@contoso.com') -and
-                ($Priority -ne 'High') -and
-                ($Subject -eq '3 matching files') -and
-                ($Attachments -like '*log.xlsx') -and
-                ($Message -like '*
-                *Servers scanned*1*
-                *Search filters*folder*>*.txt*
-                *Matching files found*3*
-                *Search errors*0*')
-            }
+        It 'contains an overview of ComputerName, Path and Exists' {
+            $actual.ComputerName | Should -Be $env:COMPUTERNAME
+            $actual.Path | Should -Be $testInputFile.Path.Keys
+            $actual.Exists | Should -BeTrue
+        }
+    }
+    It 'a summary mail is sent to the user' {
+        Should -Invoke Send-MailHC -Exactly 1 -Scope Describe -ParameterFilter {
+            ($To -eq 'bob@contoso.com') -and
+            ($Priority -ne 'High') -and
+            ($Subject -eq '3 matching files') -and
+            ($Attachments -like '*log.xlsx') -and
+            ($Message -like '*
+            *Servers scanned*1*
+            *Search filters*folder*>*.txt*
+            *Matching files found*3*
+            *Search errors*0*')
         }
     }
 }
