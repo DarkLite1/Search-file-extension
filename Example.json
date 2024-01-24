@@ -11,5 +11,6 @@
     "E:\\Outlook": [".pst"],
     "\\\\?\\C:\\Finance": [".txt"]
   },
+  "ComputersNotInOu": "C:\\Input\\Computers.txt",
   ">": "add the string '\\\\?\\' to scan for files with a path that is longer than 256 chars when only PowerShell 5.1 is available"
 }
