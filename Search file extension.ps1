@@ -115,12 +115,6 @@ Begin {
             if (-not ($Path = $file.Path)) {
                 throw "Property 'Path' not found."
             }
-
-            if ($ComputersNotInOU = $file.ComputersNotInOU) {
-                if (-not (Test-Path -LiteralPath $ComputersNotInOU -PathType Leaf)) {
-                    throw "File '$ComputersNotInOU' not found"
-                }
-            }
         }
         catch {
             throw "Input file '$ImportFile': $_"
@@ -143,9 +137,6 @@ Process {
         Try {
             $getParams = @{
                 OU = $adOUs
-            }
-            if ($ComputersNotInOU) {
-                $getParams.Path = $ComputersNotInOU
             }
             $serverComputerNames = Get-ServersHC @getParams
 

@@ -15,7 +15,6 @@ BeforeAll {
         Path              = @{
             (New-Item 'TestDrive:\folder' -ItemType Directory).FullName = @('.txt')
         }
-        ComputersNotInOu  = $null
     }
 
     $testOutParams = @{
