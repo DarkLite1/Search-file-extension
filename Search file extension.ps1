@@ -174,7 +174,9 @@ Process {
                 Invoke-Command @invokeParams
             }
             catch {
+                # disregard offline or can't connect errors
                 Write-Warning "Failed to start job on '$computerName': $_"
+                $Error.RemoveAt(0)
             }
         }
 
