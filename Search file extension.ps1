@@ -164,9 +164,13 @@ Process {
         $jobs = foreach ($computerName in $serverComputerNames) {
             try {
                 # $testResult = & $scriptBlock -Path $Path
+                $sessionParams = @{
+                    ComputerName = $computerName
+                    ScriptName   = $ScriptName
+                }
 
                 $invokeParams = @{
-                    Session      = New-PSSessionHC -ComputerName $computerName
+                    Session      = New-PSSessionHC @sessionParams
                     ScriptBlock  = $scriptBlock
                     ArgumentList = $Path
                     asJob        = $true
