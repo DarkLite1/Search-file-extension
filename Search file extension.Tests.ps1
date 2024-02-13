@@ -31,6 +31,13 @@ BeforeAll {
         ScriptAdmin = 'mike@contoso.com'
     }
 
+    $testLatestPSSessionConfiguration = Get-PSSessionConfiguration |
+    Sort-Object -Property 'Name' -Descending |
+    Select-Object -ExpandProperty 'Name' -First 1
+
+    Mock Get-PowerShellConnectableEndpointNameHC {
+        $testLatestPSSessionConfiguration
+    }
     Mock Send-MailHC
     Mock Write-EventLog
 }
@@ -76,9 +83,6 @@ Describe 'when no servers are found in AD' {
 }
 Describe 'when computers are found in AD' {
     BeforeAll {
-        Mock Get-PowerShellConnectableEndpointNameHC {
-            'PowerShell.Version.X'
-        }
         Mock Get-ServersHC {
             @('PC1', 'PC2')
         }
@@ -102,7 +106,7 @@ Describe 'when computers are found in AD' {
                 ($ComputerName -eq $_) -and
                 ($ArgumentList.Keys -eq $testInputFile.Path.Keys) -and
                 ($ArgumentList.Values -eq '.txt') -and
-                ($ConfigurationName -eq 'PowerShell.Version.X')
+                ($ConfigurationName -eq $testLatestPSSessionConfiguration)
             }
         }
     }
