@@ -31,9 +31,6 @@ BeforeAll {
         ScriptAdmin = 'mike@contoso.com'
     }
 
-    Mock New-PSSessionHC {
-        New-PSSession -ComputerName $env:COMPUTERNAME
-    }
     Mock Send-MailHC
     Mock Write-EventLog
 }
@@ -79,6 +76,9 @@ Describe 'when no servers are found in AD' {
 }
 Describe 'when computers are found in AD' {
     BeforeAll {
+        Mock Get-PowerShellConnectableEndpointNameHC {
+            'PowerShell.Version.X'
+        }
         Mock Get-ServersHC {
             @('PC1', 'PC2')
         }
@@ -89,18 +89,21 @@ Describe 'when computers are found in AD' {
 
         . $testScript @testParams
     }
-    Context 'call New-PSSessionHC for each computer' {
+    Context 'call Get-PowerShellConnectableEndpointNameHC for each computer' {
         It '<_>' -ForEach @('PC1', 'PC2') {
-            Should -Invoke New-PSSessionHC -Times 1 -Exactly -Scope Describe -ParameterFilter {
+            Should -Invoke Get-PowerShellConnectableEndpointNameHC -Times 1 -Exactly -Scope Describe -ParameterFilter {
                 $ComputerName -eq $_
             }
         }
     }
-    It 'call Invoke-Command for each computer' {
-        Should -Invoke Invoke-Command -Times 2 -Exactly -Scope Describe -ParameterFilter {
-            ($Session) -and
-            ($ArgumentList.Keys -eq $testInputFile.Path.Keys) -and
-            ($ArgumentList.Values -eq '.txt')
+    Context 'call Invoke-Command for each computer' {
+        It '<_>' -ForEach @('PC1', 'PC2') {
+            Should -Invoke Invoke-Command -Times 1 -Exactly -Scope Describe -ParameterFilter {
+                ($ComputerName -eq $_) -and
+                ($ArgumentList.Keys -eq $testInputFile.Path.Keys) -and
+                ($ArgumentList.Values -eq '.txt') -and
+                ($ConfigurationName -eq 'PowerShell.Version.X')
+            }
         }
     }
 }

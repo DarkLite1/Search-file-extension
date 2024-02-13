@@ -164,22 +164,24 @@ Process {
         $jobs = foreach ($computerName in $serverComputerNames) {
             try {
                 # $testResult = & $scriptBlock -Path $Path
-                $sessionParams = @{
+                $getEndpointParams = @{
                     ComputerName = $computerName
                     ScriptName   = $ScriptName
+                    ErrorAction  = 'Stop'
                 }
 
                 $invokeParams = @{
-                    Session      = New-PSSessionHC @sessionParams
-                    ScriptBlock  = $scriptBlock
-                    ArgumentList = $Path
-                    asJob        = $true
+                    ConfigurationName = Get-PowerShellConnectableEndpointNameHC @getEndpointParams
+                    ComputerName      = $computerName
+                    ScriptBlock       = $scriptBlock
+                    ArgumentList      = $Path
+                    AsJob             = $true
                 }
                 Invoke-Command @invokeParams
             }
             catch {
                 # disregard offline or can't connect errors
-                Write-Warning "Failed to start job on '$computerName': $_"
+                Write-Warning "Failed connecting to '$computerName': $_"
                 $Error.RemoveAt(0)
             }
         }
