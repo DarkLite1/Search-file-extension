@@ -16,6 +16,10 @@
     .PARAMETER OU
         Organizational unit in the active directory where to look for servers.
 
+    .PARAMETER PSSessionConfiguration
+        The version of PowerShell on the remote endpoint as returned by
+        Get-PSSessionConfiguration.
+
     .EXAMPLE
         @{
             'E:/DEPARTMENTS' = @('.pst')
@@ -30,6 +34,7 @@ Param (
     [String]$ScriptName,
     [Parameter(Mandatory)]
     [String]$ImportFile,
+    [String]$PSSessionConfiguration = 'PowerShell.7',
     [String]$LogFolder = "$env:POWERSHELL_LOG_FOLDER\File or folder\Search file extension\$ScriptName",
     [String[]]$ScriptAdmin = @(
         $env:POWERSHELL_SCRIPT_ADMIN,
@@ -158,37 +163,23 @@ Process {
         #endregion
 
         #region Get files from remote machines
-        $M = "Start jobs to retrieve files from remote machines"
+        $M = 'Start jobs to retrieve files from remote machines'
         Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
 
         $jobs = foreach ($computerName in $serverComputerNames) {
-            try {
-                # $testResult = & $scriptBlock -Path $Path
-                $getEndpointParams = @{
-                    ComputerName = $computerName
-                    ScriptName   = $ScriptName
-                    ErrorAction  = 'Stop'
-                }
-
-                $invokeParams = @{
-                    ConfigurationName = Get-PowerShellConnectableEndpointNameHC @getEndpointParams
-                    ComputerName      = $computerName
-                    ScriptBlock       = $scriptBlock
-                    ArgumentList      = $Path
-                    AsJob             = $true
-                }
-                Invoke-Command @invokeParams
+            $invokeParams = @{
+                ConfigurationName = $PSSessionConfiguration
+                ComputerName      = $computerName
+                ScriptBlock       = $scriptBlock
+                ArgumentList      = $Path
+                AsJob             = $true
             }
-            catch {
-                # disregard offline or can't connect errors
-                Write-Warning "Failed connecting to '$computerName': $_"
-                $Error.RemoveAt(0)
-            }
+            Invoke-Command @invokeParams
         }
 
-        $jobResults = if ($jobs) { $jobs | Wait-Job | Receive-Job }
+        $jobResults = $jobs | Wait-Job | Receive-Job
 
-        $M = "All jobs finished"
+        $M = 'All jobs finished'
         Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
         #endregion
 

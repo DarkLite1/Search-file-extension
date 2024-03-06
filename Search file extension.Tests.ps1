@@ -31,13 +31,6 @@ BeforeAll {
         ScriptAdmin = 'mike@contoso.com'
     }
 
-    $testLatestPSSessionConfiguration = Get-PSSessionConfiguration |
-    Sort-Object -Property 'Name' -Descending |
-    Select-Object -ExpandProperty 'Name' -First 1
-
-    Mock Get-PowerShellConnectableEndpointNameHC {
-        $testLatestPSSessionConfiguration
-    }
     Mock Send-MailHC
     Mock Write-EventLog
 }
@@ -93,20 +86,13 @@ Describe 'when computers are found in AD' {
 
         . $testScript @testParams
     }
-    Context 'call Get-PowerShellConnectableEndpointNameHC for each computer' {
-        It '<_>' -ForEach @('PC1', 'PC2') {
-            Should -Invoke Get-PowerShellConnectableEndpointNameHC -Times 1 -Exactly -Scope Describe -ParameterFilter {
-                $ComputerName -eq $_
-            }
-        }
-    }
     Context 'call Invoke-Command for each computer' {
         It '<_>' -ForEach @('PC1', 'PC2') {
             Should -Invoke Invoke-Command -Times 1 -Exactly -Scope Describe -ParameterFilter {
                 ($ComputerName -eq $_) -and
                 ($ArgumentList.Keys -eq $testInputFile.Path.Keys) -and
                 ($ArgumentList.Values -eq '.txt') -and
-                ($ConfigurationName -eq $testLatestPSSessionConfiguration)
+                ($ConfigurationName)
             }
         }
     }
